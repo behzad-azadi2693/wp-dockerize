@@ -1,34 +1,81 @@
-version: '3.9'
-
 services:
-  db:
-    image: mariadb:latest
+  wordpress_db:
+    image: mysql:latest
     container_name: wordpress_db
+    hostname: wordpress_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wordpress_user
-      MYSQL_PASSWORD: wordpress_password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=localhost", "--user=root", "--password=${MYSQL_ROOT_PASSWORD}"]
+      interval: 30s
+      retries: 5
+      timeout: 10s
+      start_period: 60s
+    ports:
+      - ${MYSQL_PORT}:${MYSQL_PORT}
     volumes:
       - ./db/:/var/lib/mysql
+    networks:
+      - wordpress_network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin
+    hostname: phpmyadmin
+    depends_on:
+      wordpress_db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      retries: 5
+      timeout: 10s
+      start_period: 30s
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: wordpress_db
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./info/php.ini:/usr/local/etc/php/conf.d/uploads.ini
+    restart: always
+    networks:
+      - wordpress_network
 
   wordpress:
     image: wordpress:latest
     container_name: wordpress_app
+    hostname: wordpress_app
+    restart: always
     depends_on:
-      - db
+      wordpress_db:
+        condition: service_healthy
+      phpmyadmin:
+        condition: service_healthy
     ports:
       - "8080:80"
     environment:
-      WORDPRESS_DB_HOST: db:3306
-      WORDPRESS_DB_NAME: wordpress
-      WORDPRESS_DB_USER: wordpress_user
-      WORDPRESS_DB_PASSWORD: wordpress_password
+      WORDPRESS_DB_HOST: wordpress_db:${MYSQL_PORT}
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - ./wp/:/var/www/html
-      - ./uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+      - ./info/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      retries: 5
+      timeout: 10s
+      start_period: 30s
+    networks:
+      - wordpress_network
 
-volumes:
-  db_data:
-  wordpress_data:
+networks:
+  wordpress_network:
+    name: wordpress_network
